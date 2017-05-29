@@ -1,0 +1,144 @@
+---
+title: "Practical Machine Learning Project"
+author: "Antonio Rubio Calzado"
+date: "29 de mayo de 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction.
+
+For this project we are given data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The training data is labeld with the manner in which they did the exercise. We are asked to developed an algorithm able to predict this label and perform it on a testing set (data without this labels).
+
+
+## Cleaning and processing data.
+
+Firstly, we download the training and testing data on our computer respectively from:
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv> 
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+
+If we open our raw data, there are multiple fields with "NA" , "#DIV/0!" or "", so we will think they are NA values when reading it.
+
+```{r}
+setwd("C:/Users/arubioca/Desktop/MLPROJECT")
+train <- read.csv("pml-training.csv",dec=".",na.strings = c("NA","", "#DIV/0!"))
+test <-  read.csv("pml-testing.csv",dec=".",na.strings = c("NA","", "#DIV/0!"))
+
+```
+
+Now, lets load the libraries neccessary for this project
+
+```{r}
+suppressMessages(library(caret))
+suppressMessages(library(randomForest))
+suppressMessages(library(rpart))
+```
+
+The next step is using the **caret** package to create a partition of our training data in two subgroups: The first one will have the 60% of the size of this data and the other one the remaining 40%. This will be used to do cross-validations of our future predictive algorithms.
+
+```{r}
+set.seed(100)
+inTrain <- createDataPartition(train$classe, p = 0.6, list = FALSE)
+training <- train[inTrain,]
+testing <- train[-inTrain,]
+```
+
+Let's remove near zero variance predictors from our data. With the following commands, we are detecting the variables that are near zero variance predictors in the train dataset.
+
+```{r}
+set.seed(100)
+nzv <- nearZeroVar(train, saveMetrics = TRUE)
+rm_nzv_index <- which(nzv$zeroVar == TRUE)
+```
+
+
+Also notice that many fields in our test.csv are constantly NA. We this procedure, we save in a vector the colums of the train dataset with this behavour:
+
+```{r}
+rm_NA_test_index <- c()
+for (i in 1:160){
+  if (all(is.na(test[,i]))){
+     rm_NA_test_index <- c(rm_NA_test_index,i)
+    }
+  }
+```
+
+
+Now we are going to create a vector with the variables that can be dropped from our train dataset, since they are constantly NA or near zero variance variables. 
+
+```{r}
+index <- unique(c(rm_nzv_index, rm_NA_test_index))
+training_new <- training[,-index]
+testing_new <- testing[,-index]
+```
+
+The variables `X, user_name, raw_timestamp_part_1, raw_timestamp_par_2,cvtd_timestamp, new_window and num_window` can be ommited in our study, so we also dropped them:
+
+```{r}
+training_new <- training_new[,-c(1,2,3,4,5,6,7)]
+testing_new <- testing_new[,-c(1,2,3,4,5,6,7)]
+```
+
+## Predictive Models
+
+We start fitting a CART-tree model on our training set, using the package `rpart`:
+
+```{r}
+set.seed(100)
+model_tree <- rpart(classe ~ ., data = training_new, method = "class")
+```
+
+After training phase, we are studying the out-of-sample error of this model, by predicting a classe label on our testing set and comparing those predictions with the real classe labels via the confussion Matrix:
+
+```{r}
+predictions_tree <- predict(model_tree, testing_new, type = "class")
+confusionMatrix(predictions_tree, testing_new$classe)
+```
+
+The accuracy of the model is only 75.1%, so it's a good idea try to fit another different model.
+
+Let's repeat this proccess with a random forest algorithm. We start training the model using the `randomForest` package:
+
+```{r}
+set.seed(100)
+model_rf <- randomForest(classe ~ ., data = training_new)
+```
+
+The following plot shows a graph of Error vs Trees in the previous random forest model:
+
+```{r, echo=FALSE}
+plot(model_rf)
+```
+
+Now we are checking the accuracy of this model:
+
+```{r}
+set.seed(100)
+predictions_rf <- predict(model_rf, testing_new, type = "class")
+confusionMatrix(predictions_rf, testing_new$classe)
+```
+The accuracy of this model is 99.4%, so the out-of-sample is only 0.6% and hence, this random forest model highly improves the before CART-tree model. 
+
+## Predictions
+
+We are going to predict the classe-label for test data with the random forest model that we have previously trained.
+
+The first thing is to drop all the variables that aren't used:
+
+```{r}
+test_new <- test[,-index]
+test_new <- test_new[,-c(1,2,3,4,5,6,7)]
+```
+
+And lastly, we make the prediction we have been asked for:
+
+```{r}
+pred <- predict(model_rf, test_new, type = "class")
+print(as.character(pred))
+```
